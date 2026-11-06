@@ -1,0 +1,1757 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartLens English | Scan & Learn New Objects</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- TensorFlow.js & MobileNet Derin Görsel Tanıma Modeli -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at top left, #0f172a 0%, #1e1b4b 55%, #090d16 100%);
+            min-height: 100vh;
+            color: #f8fafc;
+        }
+
+        /* Lazer Tarama Animasyonu */
+        @keyframes scanLaser {
+            0% { top: 5%; opacity: 0.9; }
+            50% { top: 92%; opacity: 1; }
+            100% { top: 5%; opacity: 0.9; }
+        }
+
+        .laser-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #38bdf8, #818cf8, #38bdf8, transparent);
+            box-shadow: 0 0 18px 4px rgba(56, 189, 248, 0.85);
+            animation: scanLaser 2s ease-in-out infinite;
+            z-index: 20;
+        }
+
+        .scan-grid-overlay {
+            background-image: 
+                linear-gradient(to right, rgba(56, 189, 248, 0.14) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(56, 189, 248, 0.14) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.65);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.5);
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="antialiased selection:bg-indigo-500 selection:text-white flex flex-col min-h-screen">
+
+    <!-- ÜST BAR: YALNIZCA TARAYICI VE AYARLAR -->
+    <header class="sticky top-0 z-40 glass-card border-b border-slate-800/80 shadow-lg">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-4">
+            <!-- Logo -->
+            <div class="flex items-center gap-3 cursor-pointer" onclick="switchTab('scanner')">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-sky-400 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                    <i class="fa-solid fa-camera-viewfinder text-white text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-base sm:text-lg font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-sky-300 bg-clip-text text-transparent">
+                        SmartLens English
+                    </h1>
+                    <p class="text-[11px] text-slate-400 hidden sm:block">AI Object Vocabulary & Pronunciation</p>
+                </div>
+            </div>
+
+            <!-- Sağ Menü: Yalnızca Tarayıcı ve Ayarlar -->
+            <nav class="flex items-center gap-2 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800">
+                <button onclick="switchTab('scanner')" id="tabBtn-scanner"
+                    class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-indigo-600 text-white shadow-md shadow-indigo-600/30">
+                    <i class="fa-solid fa-expand"></i>
+                    <span>Scan Object</span>
+                </button>
+                <button onclick="switchTab('settings')" id="tabBtn-settings"
+                    class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-300 hover:text-white hover:bg-slate-800/60">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>Ayarlar</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- ANA İÇERİK -->
+    <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+
+        <!-- ==========================================
+             SEKME 1: ÖĞRENCİ NESNE TARAMA EKRANI
+             ========================================== -->
+        <section id="tab-scanner" class="space-y-6">
+
+            <!-- Karşılama Banner'ı -->
+            <div class="glass-card rounded-3xl p-6 sm:p-8 border border-indigo-500/30 bg-gradient-to-r from-indigo-950/70 via-slate-900/80 to-sky-950/60 relative overflow-hidden">
+                <div class="relative z-10 max-w-3xl space-y-2">
+                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold">
+                        <i class="fa-solid fa-sparkles text-sky-400"></i>
+                        <span>Interactive English Visual Dictionary</span>
+                    </div>
+                    <h2 class="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
+                        Want to learn new objects? 🌟
+                    </h2>
+                    <p class="text-sm sm:text-base text-indigo-100/90 leading-relaxed">
+                        Scan or upload an object around you to discover its <strong class="text-sky-300">English meaning</strong>, listen to its <strong class="text-amber-300">pronunciation</strong>, and learn with an <strong class="text-emerald-300">example sentence</strong>!
+                    </p>
+                    <p class="text-xs text-slate-400 pt-1">
+                        Çevrendeki bir nesnenin fotoğrafını yükle veya kamerayla tarat; İngilizcesini, okunuşunu ve örnek cümlesini hemen öğren.
+                    </p>
+                </div>
+                <div class="hidden lg:flex items-center justify-center absolute right-8 top-1/2 -translate-y-1/2 w-28 h-28 rounded-3xl bg-indigo-500/10 border border-indigo-400/20 text-indigo-400/40">
+                    <i class="fa-solid fa-language text-6xl"></i>
+                </div>
+            </div>
+
+            <!-- Tarayıcı ve Sonuç Kartı (2 Sütun) -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+                <!-- SOL SÜTUN: KAMERA / FOTOĞRAF YÜKLEME KUTUSU -->
+                <div class="lg:col-span-5 glass-card rounded-3xl p-5 sm:p-6 flex flex-col gap-5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-camera text-sky-400"></i>
+                                <span>Scan or Upload Object</span>
+                            </h3>
+                            <p class="text-xs text-slate-400 mt-0.5">Nesnenin fotoğrafını yükleyin veya kamerayı açın</p>
+                        </div>
+                        <span id="cloudStatusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-[11px] font-medium">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                            <span>Bağlanıyor...</span>
+                        </span>
+                    </div>
+
+                    <!-- Görsel Seçim / Kamera Kutusu -->
+                    <div id="dropZone"
+                        onclick="triggerScannerFileInput()"
+                        class="relative w-full aspect-square max-h-[340px] mx-auto rounded-2xl bg-slate-900/90 border-2 border-dashed border-indigo-500/40 hover:border-sky-400 transition-all flex flex-col items-center justify-center overflow-hidden group cursor-pointer">
+
+                        <!-- Başlangıç Boş Görünüm -->
+                        <div id="scannerPlaceholder" class="text-center p-6 space-y-3 pointer-events-none">
+                            <div class="w-16 h-16 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center mx-auto text-indigo-400 group-hover:scale-110 transition-transform">
+                                <i class="fa-solid fa-cloud-arrow-up text-3xl"></i>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-sm sm:text-base font-bold text-white">
+                                    Drop an object photo here or click to upload
+                                </p>
+                                <p class="text-xs text-slate-400">
+                                    Nesne fotoğrafı seçmek için tıklayın veya buraya sürükleyin
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Taranan Görsel Önizleme -->
+                        <img id="scannedPreviewImg" src="" alt="Scanned Object" class="hidden w-full h-full object-contain p-3 z-10 select-none" />
+
+                        <!-- Canlı Kamera Videosu -->
+                        <video id="cameraVideo" autoplay playsinline muted class="hidden w-full h-full object-cover z-10"></video>
+
+                        <!-- Yapay Zeka Lazer Tarama Animasyonu -->
+                        <div id="scanningOverlay" class="hidden absolute inset-0 z-20 scan-grid-overlay bg-slate-950/60 flex flex-col items-center justify-center">
+                            <div class="laser-line"></div>
+                            <div class="bg-slate-900/95 border border-sky-400/50 px-5 py-3.5 rounded-2xl shadow-2xl text-center max-w-xs">
+                                <div class="flex items-center justify-center gap-2 text-sky-400 font-semibold text-sm">
+                                    <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                    <span>Analyzing Object...</span>
+                                </div>
+                                <p id="scanStepText" class="text-[11px] text-slate-300 font-mono mt-1">
+                                    Nesne görsel havuzunda aranıyor...
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gizli Dosya Input -->
+                    <input type="file" id="scannerFileInput" accept="image/*" class="hidden" onchange="handleScannerFileSelect(event)">
+
+                    <!-- Aksiyon Butonları -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button type="button" onclick="document.getElementById('scannerFileInput').click()"
+                            class="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition-all">
+                            <i class="fa-solid fa-image"></i>
+                            <span>Fotoğraf Yükle</span>
+                        </button>
+
+                        <button type="button" id="toggleCameraBtn" onclick="toggleCamera()"
+                            class="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-sm transition-all">
+                            <i class="fa-solid fa-video text-sky-400"></i>
+                            <span>Kamerayı Aç</span>
+                        </button>
+                    </div>
+
+                    <!-- Kamera Açıkken Fotoğraf Çek Butonu -->
+                    <button type="button" id="captureCameraBtn" onclick="captureFromCamera()"
+                        class="hidden w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all">
+                        <i class="fa-solid fa-camera-retro text-base"></i>
+                        <span>Fotoğraf Çek ve Nesneyi Tara</span>
+                    </button>
+                </div>
+
+                <!-- SAĞ SÜTUN: İNGİLİZCE KELİME, TELAFFUZ VE ÖRNEK CÜMLE KARTI -->
+                <div class="lg:col-span-7 glass-card rounded-3xl p-5 sm:p-7 min-h-[440px] flex flex-col justify-between">
+
+                    <!-- Boş Durum -->
+                    <div id="resultEmptyState" class="my-auto text-center py-12 px-4 space-y-4">
+                        <div class="w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500/20 to-sky-500/20 border border-indigo-500/30 flex items-center justify-center mx-auto text-indigo-300">
+                            <i class="fa-solid fa-wand-magic-sparkles text-3xl"></i>
+                        </div>
+                        <div class="max-w-md mx-auto space-y-2">
+                            <h3 class="text-xl font-bold text-white">Ready to Scan Your Object!</h3>
+                            <p class="text-sm text-slate-400 leading-relaxed">
+                                Sol taraftan bir nesnenin fotoğrafını yükleyin veya kameranızla taratın. Nesnenin <strong class="text-white">İngilizce adı</strong>, <strong class="text-amber-300">okunuşu (telaffuzu)</strong> ve <strong class="text-emerald-300">örnek cümlesi</strong> burada görüntülenecektir.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Nesne Bulunamadı / Havuz Boş Uyarısı -->
+                    <div id="resultNotFoundState" class="hidden my-auto text-center py-8 px-4 space-y-4">
+                        <div class="w-16 h-16 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400 shadow-lg shadow-rose-500/10">
+                            <i class="fa-solid fa-ban text-3xl"></i>
+                        </div>
+                        <div class="max-w-lg mx-auto space-y-3">
+                            <span class="px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold uppercase tracking-wider">
+                                Object Not in Pool • Eşleşme Reddedildi
+                            </span>
+                            <h3 class="text-xl font-extrabold text-white">
+                                Bu Nesne Görsel Havuzunda Bulunamadı!
+                            </h3>
+                            <p id="notFoundReasonText" class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                Tarattığınız görsel havuzdaki hiçbir nesneyle eşleşmedi.
+                            </p>
+
+                            <!-- Tespit Detay Kutusu -->
+                            <div class="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 text-left space-y-2 text-xs">
+                                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                                    <span class="text-slate-400">Algılanan Görsel:</span>
+                                    <span id="rejectedDetectedLabel" class="font-bold text-amber-300 font-mono">Farklı Nesne</span>
+                                </div>
+                                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                                    <span class="text-slate-400">En Yakın Havuz Benzerliği:</span>
+                                    <span id="rejectedScoreLabel" class="font-bold text-rose-400 font-mono">%12 (Gereken Baraj: %75)</span>
+                                </div>
+                                <div class="flex items-start justify-between gap-2 pt-0.5">
+                                    <span class="text-slate-400 shrink-0">Havuzdaki Kayıtlı Nesneler:</span>
+                                    <span id="rejectedPoolListLabel" class="font-semibold text-indigo-300 text-right">-</span>
+                                </div>
+                            </div>
+
+                            <p class="text-[11px] text-slate-400">
+                                💡 Yalnızca <strong>Ayarlar</strong> bölümünden görsel havuzuna eklediğiniz nesneler taratıldığında İngilizce karşılığı gösterilir.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Tarama Sonucu Dolu Durum -->
+                    <div id="resultContentState" class="hidden space-y-5">
+                        <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                            <span id="matchConfidenceBadge" class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+                                <i class="fa-solid fa-circle-check"></i>
+                                <span id="matchConfidenceText">Object Recognized</span>
+                            </span>
+
+                            <div class="flex items-center gap-1.5 text-xs bg-slate-900/90 px-2.5 py-1 rounded-xl border border-slate-800">
+                                <span class="text-slate-400">Speed:</span>
+                                <button type="button" onclick="setSpeechRate(1.0)" id="rateNormalBtn" class="px-2 py-0.5 rounded-lg bg-indigo-600 text-white font-semibold">1.0x</button>
+                                <button type="button" onclick="setSpeechRate(0.7)" id="rateSlowBtn" class="px-2 py-0.5 rounded-lg text-slate-400 hover:text-white">0.7x Slow</button>
+                            </div>
+                        </div>
+
+                        <!-- 1. İngilizce Kelime ve Türkçesi -->
+                        <div class="bg-gradient-to-br from-indigo-950/90 via-slate-900 to-slate-900 p-5 sm:p-6 rounded-2xl border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                            <div class="space-y-1">
+                                <span class="text-[11px] font-bold uppercase tracking-widest text-indigo-400 block">
+                                    ENGLISH WORD (İNGİLİZCE ADI)
+                                </span>
+                                <h3 id="resEnglishWord" class="text-3xl sm:text-5xl font-black text-white tracking-tight">
+                                    -
+                                </h3>
+                                <p id="resTurkishWord" class="text-sm sm:text-base font-medium text-slate-300 pt-0.5">
+                                    -
+                                </p>
+                            </div>
+
+                            <button type="button" onclick="speakCurrentWord()"
+                                class="w-full sm:w-auto flex items-center justify-center gap-2.5 px-5 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-sky-500 hover:from-indigo-400 hover:to-sky-400 text-white font-bold text-sm shadow-lg shadow-indigo-500/30 active:scale-95 transition-all">
+                                <i class="fa-solid fa-volume-high text-lg"></i>
+                                <span>Telaffuzu Dinle</span>
+                            </button>
+                        </div>
+
+                        <!-- 2. Okunuşu -->
+                        <div class="bg-slate-900/85 p-5 rounded-2xl border border-slate-800 flex items-center justify-between gap-4">
+                            <div class="space-y-1">
+                                <span class="text-[11px] font-bold uppercase tracking-widest text-sky-400 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-microphone-lines"></i>
+                                    PRONUNCIATION (TELAFFUZ / OKUNUŞ)
+                                </span>
+                                <p id="resPronunciation" class="text-xl sm:text-2xl font-bold text-amber-300 font-mono">
+                                    -
+                                </p>
+                            </div>
+                            <img id="resPoolMatchedThumb" src="" alt="Matched Object" class="w-14 h-14 rounded-xl object-cover bg-slate-800 border border-slate-700 p-0.5 shrink-0">
+                        </div>
+
+                        <!-- 3. Örnek Cümle -->
+                        <div class="bg-slate-900/85 p-5 sm:p-6 rounded-2xl border border-slate-800 space-y-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[11px] font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-comment-dots"></i>
+                                    EXAMPLE SENTENCE (ÖRNEK CÜMLE)
+                                </span>
+                                <button type="button" onclick="speakCurrentSentence()"
+                                    class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all">
+                                    <i class="fa-solid fa-circle-play"></i>
+                                    <span>Cümleyi Dinle</span>
+                                </button>
+                            </div>
+
+                            <blockquote id="resExampleEn" class="text-base sm:text-xl font-semibold text-white leading-relaxed border-l-4 border-emerald-500 pl-4 py-0.5">
+                                -
+                            </blockquote>
+
+                            <p id="resExampleTr" class="text-xs sm:text-sm text-slate-400 pl-4 italic">
+                                -
+                            </p>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             SEKME 2: AYARLAR (NORMAL AYARLAR + KORUMALI HAVUZ YÖNETİMİ)
+             ========================================== -->
+        <section id="tab-settings" class="hidden space-y-6 max-w-4xl mx-auto">
+
+            <!-- BÖLÜM 1: Ses ve Uygulama Ayarları -->
+            <div class="glass-card rounded-3xl p-6 space-y-5">
+                <div class="flex items-center gap-3 border-b border-slate-800 pb-4">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                        <i class="fa-solid fa-sliders"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-white">Uygulama ve Ses Ayarları</h2>
+                        <p class="text-xs text-slate-400">İngilizce telaffuz okuma hızını ve aksan tercihini buradan ayarlayabilirsiniz.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+                        <label class="text-xs font-semibold text-slate-300 block">Varsayılan Telaffuz Hızı</label>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="setSpeechRate(1.0)" id="settingsRateNormal" class="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">
+                                1.0x Normal Hız
+                            </button>
+                            <button type="button" onclick="setSpeechRate(0.7)" id="settingsRateSlow" class="flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold">
+                                0.7x Yavaş (Öğrenci)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+                        <label class="text-xs font-semibold text-slate-300 block">İngilizce Aksan Tercihi</label>
+                        <select id="voiceAccentSelect" onchange="changeVoiceAccent(this.value)"
+                            class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500">
+                            <option value="en-US">Amerikan İngilizcesi (en-US)</option>
+                            <option value="en-GB">İngiliz İngilizcesi (en-GB)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BÖLÜM 2: Şifreli Kilit Kutusu -->
+            <div id="settingsLockBox" class="glass-card rounded-3xl p-6 border border-slate-800">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                            <i class="fa-solid fa-lock text-slate-400"></i>
+                            <span>İçerik ve Görsel Havuzu Yönetimi</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">
+                            Sisteme yeni nesne görselleri tanımlamak için erişim şifresini girin (Varsayılan: 1234).
+                        </p>
+                    </div>
+
+                    <form onsubmit="handleUnlockSettings(event)" class="flex items-center gap-2 w-full sm:w-auto">
+                        <input type="password" id="settingsPasswordInput" placeholder="Şifre..." required
+                            class="w-full sm:w-40 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm text-white font-mono focus:outline-none focus:border-indigo-500">
+                        <button type="submit"
+                            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shrink-0 transition-all">
+                            Kilidi Aç
+                        </button>
+                    </form>
+                </div>
+                <p id="settingsPassError" class="hidden text-xs text-rose-400 mt-2">
+                    Hatalı şifre girdiniz.
+                </p>
+            </div>
+
+            <!-- BÖLÜM 3: Kilit Açıldığında Görünen Alan -->
+            <div id="unlockedContentManager" class="hidden space-y-6">
+
+                <!-- TOPLU NESNE YÜKLEYİCİ -->
+                <div class="glass-card rounded-3xl p-6 border-2 border-indigo-500/40 bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 space-y-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                        <div class="space-y-1">
+                            <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold">
+                                <i class="fa-solid fa-bolt"></i>
+                                <span>Hızlı Okul Arşivi Yükleme</span>
+                            </div>
+                            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-layer-group text-sky-400"></i>
+                                <span>Toplu Görsel Yükle (20+ Nesneyi Tek Seferde Aktar)</span>
+                            </h3>
+                            <p class="text-xs text-slate-400">
+                                Çektiğiniz fotoğrafları tek seferde seçin. Model dosya isminden veya görselden nesneyi tanıyıp otomatik hazırlar.
+                            </p>
+                        </div>
+                        <button type="button" onclick="document.getElementById('batchFileInput').click()"
+                            class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 shrink-0 transition-all">
+                            <i class="fa-solid fa-folder-open"></i>
+                            <span>Tüm Fotoğrafları Seç</span>
+                        </button>
+                    </div>
+
+                    <input type="file" id="batchFileInput" accept="image/*" multiple class="hidden" onchange="handleBatchFilesSelected(event)">
+
+                    <div id="batchQueueContainer" class="hidden space-y-3">
+                        <div class="flex items-center justify-between text-xs text-slate-300">
+                            <span>Yüklenecek Nesneler (<strong id="batchQueueCount" class="text-white">0</strong>):</span>
+                            <span class="text-[11px] text-slate-400">İngilizce isimleri kontrol edebilir veya değiştirebilirsiniz</span>
+                        </div>
+
+                        <div id="batchItemsList" class="space-y-2.5 max-h-[300px] overflow-y-auto pr-1"></div>
+
+                        <div id="batchProgressBox" class="hidden p-3.5 rounded-2xl bg-indigo-950/80 border border-indigo-500/40 space-y-2">
+                            <div class="flex items-center justify-between text-xs">
+                                <span id="batchProgressTitle" class="font-bold text-white flex items-center gap-2">
+                                    <i class="fa-solid fa-circle-notch fa-spin text-sky-400"></i>
+                                    <span>Nesneler hazırlanıyor ve Firebase'e aktarılıyor...</span>
+                                </span>
+                                <span id="batchProgressPercent" class="font-mono text-sky-300 font-bold">0 / 0</span>
+                            </div>
+                            <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-700">
+                                <div id="batchProgressBar" class="bg-gradient-to-r from-indigo-500 to-emerald-400 h-2 transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap items-center justify-end gap-2 pt-2">
+                            <button type="button" onclick="clearBatchQueue()"
+                                class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">
+                                Vazgeç / Temizle
+                            </button>
+                            <button type="button" id="startBatchUploadBtn" onclick="processAndSaveAllBatchItems()"
+                                class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>Tümünü Otomatik Eğit ve Firebase'e Kaydet</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tekli Görsel Yükleme Kartı -->
+                <div class="glass-card rounded-3xl p-6 border border-indigo-500/40 space-y-5">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                        <div>
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-cloud-arrow-up text-indigo-400"></i>
+                                <span>Tekli Nesne Ekle (Detaylı Mod)</span>
+                            </h3>
+                            <p class="text-xs text-slate-400 mt-0.5">
+                                Görseli ve İngilizce adını girin; telaffuz ve örnek cümle hazırlanıp <strong>Firebase Realtime Database</strong>'e kaydedilir.
+                            </p>
+                        </div>
+                        <button type="button" onclick="lockSettingsArea()"
+                            class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5">
+                            <i class="fa-solid fa-lock"></i>
+                            <span>Kilitle</span>
+                        </button>
+                    </div>
+
+                    <form id="poolUploadForm" onsubmit="handleCreateAndSaveToFirebase(event)" class="space-y-4">
+                        <div class="space-y-2">
+                            <label class="block text-xs font-bold uppercase tracking-wider text-indigo-300">
+                                1. Nesne Görseli Seçin (Birden Fazla Açı Yükleyebilirsiniz) *
+                            </label>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <button type="button" onclick="document.getElementById('poolImageInput').click()"
+                                    class="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-dashed border-indigo-400/50 text-indigo-300 text-xs font-semibold flex items-center gap-2">
+                                    <i class="fa-solid fa-images"></i>
+                                    <span>Görsel Seç</span>
+                                </button>
+                                <input type="file" id="poolImageInput" accept="image/*" multiple class="hidden" onchange="handlePoolFilesSelected(event)">
+                                <div id="poolSelectedThumbs" class="flex items-center gap-2 overflow-x-auto py-1">
+                                    <span class="text-xs text-slate-500 italic">Henüz görsel seçilmedi.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                            <div>
+                                <label class="block text-xs font-bold uppercase tracking-wider text-emerald-300 mb-1">
+                                    2. Nesnenin İngilizce Adı (English Word) *
+                                </label>
+                                <input type="text" id="inputEnglishWord" required placeholder="Örn: Folder, Stapler, Backpack..."
+                                    class="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-base text-white font-bold focus:outline-none focus:border-indigo-500">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                                    Altında Görünecek Türkçesi (İsteğe Bağlı)
+                                </label>
+                                <input type="text" id="inputTurkishWord" placeholder="Boş bırakırsanız otomatik tamamlanır"
+                                    class="w-full px-4 py-3 rounded-xl bg-slate-900/70 border border-slate-800 text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
+                            </div>
+                        </div>
+
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between">
+                                <button type="button" onclick="handlePreviewAiGeneration()" id="previewAiBtn"
+                                    class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition-all">
+                                    <i class="fa-solid fa-wand-magic-sparkles text-sky-400"></i>
+                                    <span>Telaffuz ve Örnek Cümleyi Önizle (İsteğe Bağlı)</span>
+                                </button>
+                            </div>
+
+                            <div id="aiPreviewFieldsBox" class="hidden p-4 rounded-2xl bg-slate-900/90 border border-indigo-500/30 space-y-3">
+                                <p class="text-[11px] font-bold uppercase tracking-wider text-sky-400">
+                                    Üretilen İçerik (İsterseniz Düzenleyebilirsiniz)
+                                </p>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-[11px] text-slate-400 mb-1">Okunuş / Telaffuz</label>
+                                        <input type="text" id="previewPronunciation" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-amber-300 font-mono">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] text-slate-400 mb-1">Türkçe Anlamı</label>
+                                        <input type="text" id="previewTurkish" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] text-slate-400 mb-1">İngilizce Örnek Cümle</label>
+                                    <input type="text" id="previewExampleEn" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] text-slate-400 mb-1">Örnek Cümlenin Türkçesi</label>
+                                    <input type="text" id="previewExampleTr" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-slate-300">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="aiGeneratingBox" class="hidden p-4 rounded-2xl bg-indigo-950/90 border border-indigo-500/40 flex items-center gap-3">
+                            <i class="fa-solid fa-circle-notch fa-spin text-sky-400 text-lg"></i>
+                            <div class="text-xs">
+                                <p class="font-bold text-white">İçerik Hazırlanıyor...</p>
+                                <p class="text-indigo-300 mt-0.5">Vektörler çıkarılıyor ve Firebase Realtime Database'e kaydediliyor...</p>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="savePoolBtn"
+                            class="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-sky-500 hover:from-indigo-500 hover:to-sky-400 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>Vektörleri Çıkar ve Realtime Database'e Kaydet</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Havuzdaki Nesneler Listesi -->
+                <div class="glass-card rounded-3xl p-6 space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                        <div>
+                            <h3 class="text-base font-bold text-white flex items-center gap-2">
+                                <i class="fa-solid fa-database text-emerald-400"></i>
+                                <span>Realtime Database Görsel Havuzu (<span id="poolTotalCount">0</span>)</span>
+                            </h3>
+                            <p class="text-xs text-slate-400">
+                                Nesnelerin başarı oranını artırmak için <strong>+ Açı Ekle</strong> butonuyla farklı açılardan fotoğraf yükleyebilirsiniz.
+                            </p>
+                        </div>
+                        <button type="button" onclick="recalibrateAllPoolItems(true)"
+                            class="px-3 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition-all">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>Havuzu Yeniden Kalibre Et</span>
+                        </button>
+                    </div>
+
+                    <!-- Hassasiyet Barajı -->
+                    <div class="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2">
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="font-bold text-slate-200 flex items-center gap-1.5">
+                                <i class="fa-solid fa-shield-halved text-emerald-400"></i>
+                                <span>Eşleşme Hassasiyeti (Minimum Benzerlik Barajı)</span>
+                            </span>
+                            <span id="thresholdValueBadge" class="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono font-bold">%75</span>
+                        </div>
+                        <input type="range" id="similarityThresholdSlider" min="55" max="92" value="75"
+                            oninput="updateSimilarityThreshold(this.value)"
+                            class="w-full accent-indigo-500 cursor-pointer">
+                    </div>
+
+                    <input type="file" id="extraAngleFileInput" accept="image/*" multiple class="hidden" onchange="handleExtraAngleUpload(event)">
+                    <div id="poolItemsList" class="space-y-3 max-h-[380px] overflow-y-auto pr-1"></div>
+                </div>
+
+                <!-- Ayarlar Kilidi Şifresini Güncelle -->
+                <div class="glass-card rounded-3xl p-6 border border-slate-800">
+                    <div class="flex flex-col sm:flex-row gap-3 items-end">
+                        <div class="w-full">
+                            <label class="block text-xs text-slate-400 mb-1">Ayarlar Kilit Şifresini Değiştir (Varsayılan: 1234)</label>
+                            <input type="text" id="newLockPassInput" placeholder="Yeni şifre belirleyin..."
+                                class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono">
+                        </div>
+                        <button type="button" onclick="updateLockPassword()"
+                            class="w-full sm:w-auto px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold shrink-0">
+                            Şifreyi Güncelle
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- BİLDİRİM TOAST KUTUSU -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+    <!-- GİZLİ CANVAS -->
+    <canvas id="featureCanvas" width="64" height="64" class="hidden"></canvas>
+
+    <!-- FIREBASE REALTIME DATABASE VE UYGULAMA MANTIĞI -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, remove, update } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+
+        /********************************************************************
+         * PROJENİN FIREBASE REALTIME DATABASE YAPILANDIRMASI
+         ********************************************************************/
+        const HARDCODED_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyC83WBb95yzm5GAyesnahOU2Iq9MDsD4bM",
+            authDomain: "smartlens-english.firebaseapp.com",
+            databaseURL: "https://smartlens-english-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "smartlens-english",
+            storageBucket: "smartlens-english.firebasestorage.app",
+            messagingSenderId: "746408740729",
+            appId: "1:746408740729:web:152a33d56c0f2bc20c91a8"
+        };
+
+        const LOCAL_POOL_CACHE_KEY = 'smartlens_rtdb_pool_backup_v4';
+        const LOCAL_PASS_KEY = 'smartlens_settings_pass_v4';
+        const LOCAL_THRESHOLD_KEY = 'smartlens_match_threshold_v5';
+
+        let objectPool = [];
+        let lockPassword = localStorage.getItem(LOCAL_PASS_KEY) || '1234';
+        let matchThreshold = parseInt(localStorage.getItem(LOCAL_THRESHOLD_KEY) || '75', 10);
+        let speechRate = 1.0;
+        let speechAccent = 'en-US';
+        let currentMatchedItem = null;
+        let scannerMediaStream = null;
+        let pendingUploadSamples = [];
+        let targetExtraAngleObjectId = null;
+
+        let batchQueue = [];
+        let isBatchUploading = false;
+        let mobilenetModel = null;
+        let isMobilenetLoading = false;
+        let rtdb = null;
+
+        async function generateWordDetailsWithAI(enWord, userTrWord = '') {
+            try {
+                const dictRes = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(enWord.toLowerCase().trim())}`);
+                if (dictRes.ok) {
+                    const dictData = await dictRes.json();
+                    const entry = dictData?.[0];
+                    const phonetics = entry?.phonetics?.find(p => p.text)?.text || `/${enWord.toLowerCase()}/`;
+                    
+                    let exampleSentence = '';
+                    if (entry?.meanings) {
+                        for (const m of entry.meanings) {
+                            for (const d of (m.definitions || [])) {
+                                if (d.example) {
+                                    exampleSentence = d.example;
+                                    break;
+                                }
+                            }
+                            if (exampleSentence) break;
+                        }
+                    }
+
+                    if (!exampleSentence) {
+                        exampleSentence = `I have a ${enWord.toLowerCase()} on my desk.`;
+                    }
+
+                    return {
+                        trName: userTrWord || enWord,
+                        pronunciation: `"${enWord}" (${phonetics})`,
+                        exampleEn: exampleSentence.charAt(0).toUpperCase() + exampleSentence.slice(1),
+                        exampleTr: userTrWord ? `Masanın üzerinde bir ${userTrWord.toLowerCase()} var.` : 'Örnek cümle'
+                    };
+                }
+            } catch (e) {
+                console.warn('Açık sözlük isteği başarısız oldu:', e);
+            }
+
+            return {
+                trName: userTrWord || enWord,
+                pronunciation: `"${enWord}" (/${enWord.toLowerCase()}/)`,
+                exampleEn: `Look at this ${enWord.toLowerCase()}.`,
+                exampleTr: userTrWord ? `Bu ${userTrWord.toLowerCase()} nesnesine bak.` : `Bu ${enWord} nesnesine bak.`
+            };
+        }
+
+        async function ensureMobileNetLoaded() {
+            if (mobilenetModel) return mobilenetModel;
+            if (isMobilenetLoading) {
+                while (isMobilenetLoading) {
+                    await new Promise(r => setTimeout(r, 150));
+                }
+                return mobilenetModel;
+            }
+            if (typeof window.mobilenet === 'undefined') return null;
+            try {
+                isMobilenetLoading = true;
+                mobilenetModel = await window.mobilenet.load({ version: 2, alpha: 0.5 });
+            } catch (e) {
+                console.warn('MobileNet yüklenemedi:', e);
+            } finally {
+                isMobilenetLoading = false;
+            }
+            return mobilenetModel;
+        }
+
+        function initFirebaseRealtimeDatabase() {
+            const badge = document.getElementById('cloudStatusBadge');
+
+            try {
+                const app = initializeApp(HARDCODED_FIREBASE_CONFIG);
+                rtdb = getDatabase(app);
+
+                const poolRef = ref(rtdb, 'visual_pool');
+                onValue(
+                    poolRef,
+                    (snapshot) => {
+                        const val = snapshot.val();
+                        const loaded = [];
+                        if (val && typeof val === 'object') {
+                            Object.keys(val).forEach((key) => {
+                                const item = val[key];
+                                if (item && item.enName) {
+                                    loaded.push({
+                                        id: key,
+                                        enName: item.enName,
+                                        trName: item.trName || '',
+                                        pronunciation: item.pronunciation || '',
+                                        exampleEn: item.exampleEn || '',
+                                        exampleTr: item.exampleTr || '',
+                                        createdAt: item.createdAt || 0,
+                                        samples: Array.isArray(item.samples) ? item.samples : []
+                                    });
+                                }
+                            });
+                        }
+                        loaded.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                        objectPool = loaded;
+                        localStorage.setItem(LOCAL_POOL_CACHE_KEY, JSON.stringify(objectPool));
+                        renderPoolItemsInSettings();
+                        recalibrateAllPoolItems(false);
+
+                        badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-medium';
+                        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>Realtime DB Aktif</span>`;
+                    },
+                    (error) => {
+                        console.error('Realtime Database okuma hatası:', error);
+                        badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px] font-medium';
+                        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span><span>DB Kural İzni Hatası</span>`;
+                        loadFallbackLocalPool();
+                    }
+                );
+            } catch (err) {
+                badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium';
+                badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>Yerel Mod</span>`;
+                loadFallbackLocalPool();
+            }
+        }
+
+        function loadFallbackLocalPool() {
+            try {
+                const raw = localStorage.getItem(LOCAL_POOL_CACHE_KEY);
+                if (raw) objectPool = JSON.parse(raw);
+            } catch (e) {
+                objectPool = [];
+            }
+            renderPoolItemsInSettings();
+            recalibrateAllPoolItems(false);
+        }
+
+        window.updateSimilarityThreshold = function(val) {
+            matchThreshold = parseInt(val, 10) || 75;
+            localStorage.setItem(LOCAL_THRESHOLD_KEY, String(matchThreshold));
+            const badge = document.getElementById('thresholdValueBadge');
+            if (badge) badge.textContent = `%${matchThreshold}`;
+        };
+
+        async function saveItemToRealtimeDatabase(newItem) {
+            const existingIdx = objectPool.findIndex(x => x.id === newItem.id);
+            if (existingIdx !== -1) {
+                objectPool[existingIdx] = newItem;
+            } else {
+                objectPool.unshift(newItem);
+            }
+            localStorage.setItem(LOCAL_POOL_CACHE_KEY, JSON.stringify(objectPool));
+            renderPoolItemsInSettings();
+
+            if (rtdb) {
+                const itemRef = ref(rtdb, `visual_pool/${newItem.id}`);
+                await set(itemRef, {
+                    enName: newItem.enName,
+                    trName: newItem.trName,
+                    pronunciation: newItem.pronunciation,
+                    exampleEn: newItem.exampleEn,
+                    exampleTr: newItem.exampleTr,
+                    createdAt: newItem.createdAt,
+                    samples: newItem.samples
+                });
+            }
+        }
+
+        async function removeItemFromRealtimeDatabase(itemId) {
+            objectPool = objectPool.filter(x => x.id !== itemId);
+            localStorage.setItem(LOCAL_POOL_CACHE_KEY, JSON.stringify(objectPool));
+            renderPoolItemsInSettings();
+
+            if (rtdb) {
+                const itemRef = ref(rtdb, `visual_pool/${itemId}`);
+                await remove(itemRef);
+            }
+            showToast('Nesne görsel havuzundan silindi.', 'info');
+        }
+
+        function zeroMeanNormalize(arr) {
+            if (!arr || arr.length === 0) return [];
+            let sum = 0;
+            for (let i = 0; i < arr.length; i++) sum += arr[i];
+            const mean = sum / arr.length;
+            let normSq = 0;
+            const centered = new Array(arr.length);
+            for (let i = 0; i < arr.length; i++) {
+                const d = arr[i] - mean;
+                centered[i] = d;
+                normSq += d * d;
+            }
+            const norm = Math.sqrt(normSq) || 1;
+            for (let i = 0; i < arr.length; i++) {
+                centered[i] = Number((centered[i] / norm).toFixed(4));
+            }
+            return centered;
+        }
+
+        function extractVisualFeatureVector(imgElement) {
+            const canvas = document.getElementById('featureCanvas');
+            const ctx = canvas.getContext('2d');
+            const GRID_SIZE = 24;
+            canvas.width = GRID_SIZE;
+            canvas.height = GRID_SIZE;
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
+            ctx.drawImage(imgElement, 0, 0, GRID_SIZE, GRID_SIZE);
+
+            const imgData = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
+            const rawColor = [];
+            const gray = new Float32Array(GRID_SIZE * GRID_SIZE);
+            const colorHistogram = new Array(27).fill(0);
+
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const idx = (y * GRID_SIZE + x) * 4;
+                    const r = imgData[idx] / 255;
+                    const g = imgData[idx + 1] / 255;
+                    const b = imgData[idx + 2] / 255;
+
+                    if (y % 2 === 0 && x % 2 === 0) {
+                        rawColor.push(r, g, b);
+                    }
+                    gray[y * GRID_SIZE + x] = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                    const rBin = Math.min(2, Math.floor(r * 3));
+                    const gBin = Math.min(2, Math.floor(g * 3));
+                    const bBin = Math.min(2, Math.floor(b * 3));
+                    colorHistogram[rBin * 9 + gBin * 3 + bBin] += 1;
+                }
+            }
+
+            const edgeFeatures = [];
+            for (let y = 1; y < GRID_SIZE - 1; y += 2) {
+                for (let x = 1; x < GRID_SIZE - 1; x += 2) {
+                    const gx =
+                        -gray[(y - 1) * GRID_SIZE + (x - 1)] + gray[(y - 1) * GRID_SIZE + (x + 1)]
+                        - 2 * gray[y * GRID_SIZE + (x - 1)] + 2 * gray[y * GRID_SIZE + (x + 1)]
+                        - gray[(y + 1) * GRID_SIZE + (x - 1)] + gray[(y + 1) * GRID_SIZE + (x + 1)];
+                    const gy =
+                        -gray[(y - 1) * GRID_SIZE + (x - 1)] - 2 * gray[(y - 1) * GRID_SIZE + x] - gray[(y - 1) * GRID_SIZE + (x + 1)]
+                        + gray[(y + 1) * GRID_SIZE + (x - 1)] + 2 * gray[(y + 1) * GRID_SIZE + x] + gray[(y + 1) * GRID_SIZE + (x + 1)];
+                    const mag = Math.sqrt(gx * gx + gy * gy);
+                    edgeFeatures.push(mag, gx, gy);
+                }
+            }
+
+            const normColor = zeroMeanNormalize(rawColor);
+            const normEdges = zeroMeanNormalize(edgeFeatures);
+            const normHist = zeroMeanNormalize(colorHistogram);
+
+            return [...normColor, ...normEdges, ...normHist];
+        }
+
+        async function extractDeepFeaturesForImage(imgElement) {
+            const vector = extractVisualFeatureVector(imgElement);
+            let deepVec = null;
+            let topClasses = [];
+
+            const model = await ensureMobileNetLoaded();
+            if (model && window.tf) {
+                try {
+                    const activation = model.infer(imgElement, true);
+                    const rawData = await activation.data();
+                    activation.dispose();
+                    const pooled = [];
+                    for (let i = 0; i < rawData.length; i += 4) {
+                        pooled.push((rawData[i] + rawData[i + 1] + rawData[i + 2] + rawData[i + 3]) / 4);
+                    }
+                    deepVec = zeroMeanNormalize(pooled);
+
+                    const preds = await model.classify(imgElement, 4);
+                    topClasses = preds.map(p => p.className.toLowerCase());
+                } catch (e) {
+                    console.warn('MobileNet çıkarım uyarısı:', e);
+                }
+            }
+            return { vector, deepVec, topClasses, calibratedV5: true };
+        }
+
+        window.recalibrateAllPoolItems = async function(showNotification = false) {
+            if (!objectPool || objectPool.length === 0) return;
+            let updatedAny = false;
+
+            for (const item of objectPool) {
+                if (!Array.isArray(item.samples)) continue;
+                for (let i = 0; i < item.samples.length; i++) {
+                    const sample = item.samples[i];
+                    if (sample && sample.dataUrl && (!sample.calibratedV5 || showNotification)) {
+                        await new Promise((resolve) => {
+                            const img = new Image();
+                            img.onload = async () => {
+                                const feats = await extractDeepFeaturesForImage(img);
+                                sample.vector = feats.vector;
+                                sample.deepVec = feats.deepVec;
+                                sample.topClasses = feats.topClasses;
+                                sample.calibratedV5 = true;
+                                updatedAny = true;
+                                resolve();
+                            };
+                            img.onerror = () => resolve();
+                            img.src = sample.dataUrl;
+                        });
+                    }
+                }
+            }
+
+            if (updatedAny) {
+                localStorage.setItem(LOCAL_POOL_CACHE_KEY, JSON.stringify(objectPool));
+                if (rtdb) {
+                    for (const item of objectPool) {
+                        const itemRef = ref(rtdb, `visual_pool/${item.id}`);
+                        update(itemRef, { samples: item.samples }).catch(() => {});
+                    }
+                }
+                if (showNotification) {
+                    showToast('Havuzdaki tüm nesneler yeniden kalibre edildi!', 'success');
+                }
+            }
+        };
+
+        function createThumbnailDataUrl(imgElement, maxSize = 200) {
+            const tempCanvas = document.createElement('canvas');
+            let w = imgElement.naturalWidth || imgElement.width || 200;
+            let h = imgElement.naturalHeight || imgElement.height || 200;
+            if (w > h) {
+                if (w > maxSize) { h = Math.round((h * maxSize) / w); w = maxSize; }
+            } else {
+                if (h > maxSize) { w = Math.round((w * maxSize) / h); h = maxSize; }
+            }
+            tempCanvas.width = w;
+            tempCanvas.height = h;
+            const tCtx = tempCanvas.getContext('2d');
+            tCtx.fillStyle = '#1e293b';
+            tCtx.fillRect(0, 0, w, h);
+            tCtx.drawImage(imgElement, 0, 0, w, h);
+            return tempCanvas.toDataURL('image/jpeg', 0.75);
+        }
+
+        function computeCosineSimilarity(vecA, vecB) {
+            if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
+            let dot = 0, normA = 0, normB = 0;
+            for (let i = 0; i < vecA.length; i++) {
+                dot += vecA[i] * vecB[i];
+                normA += vecA[i] * vecA[i];
+                normB += vecB[i] * vecB[i];
+            }
+            if (normA === 0 || normB === 0) return 0;
+            return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+        }
+
+        async function matchObjectFromPool(dataUrl, queryFeatures) {
+            if (objectPool.length === 0) {
+                return { item: null, confidence: 0, detectedLabel: 'Havuz Boş', rejected: true };
+            }
+
+            const stepEl = document.getElementById('scanStepText');
+            if (stepEl) stepEl.textContent = 'Görsel özellikler karşılaştırılıyor...';
+
+            let bestItem = null;
+            let bestCombinedScore = -1;
+            let bestThumb = '';
+
+            for (const item of objectPool) {
+                for (const sample of (item.samples || [])) {
+                    const surfaceCorr = computeCosineSimilarity(queryFeatures.vector, sample.vector);
+                    let deepCorr = surfaceCorr;
+                    if (queryFeatures.deepVec && sample.deepVec) {
+                        deepCorr = computeCosineSimilarity(queryFeatures.deepVec, sample.deepVec);
+                    }
+
+                    let classBonus = 0;
+                    const itemNameLower = item.enName.toLowerCase();
+                    if (queryFeatures.topClasses?.length > 0) {
+                        const directLabelHit = queryFeatures.topClasses.some(c => c.includes(itemNameLower) || itemNameLower.includes(c.split(',')[0]));
+                        if (directLabelHit) classBonus += 0.22;
+
+                        if (sample.topClasses?.length > 0) {
+                            const sharedClass = queryFeatures.topClasses.some(qc => sample.topClasses.includes(qc));
+                            if (sharedClass) classBonus += 0.15;
+                        }
+                    }
+
+                    const combined = (deepCorr * 0.60) + (surfaceCorr * 0.40) + classBonus;
+                    if (combined > bestCombinedScore) {
+                        bestCombinedScore = combined;
+                        bestItem = item;
+                        bestThumb = sample.dataUrl;
+                    }
+                }
+            }
+
+            const localConfidence = Math.min(99, Math.max(4, Math.round(Math.max(0, bestCombinedScore) * 115)));
+            const detectedOfflineLabel = queryFeatures.topClasses?.[0]
+                ? queryFeatures.topClasses[0].split(',')[0].toUpperCase()
+                : 'Tanımsız Görsel';
+
+            if (localConfidence < matchThreshold) {
+                return {
+                    item: null,
+                    closestItem: bestItem,
+                    confidence: localConfidence,
+                    detectedLabel: detectedOfflineLabel,
+                    rejected: true
+                };
+            }
+
+            return {
+                item: bestItem,
+                confidence: localConfidence,
+                matchedThumb: bestThumb,
+                detectedLabel: bestItem?.enName || '',
+                rejected: false
+            };
+        }
+
+        window.triggerScannerFileInput = function() {
+            if (scannerMediaStream) return;
+            document.getElementById('scannerFileInput').click();
+        };
+
+        window.handleScannerFileSelect = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            stopScannerCamera();
+
+            const reader = new FileReader();
+            reader.onload = (evt) => processScannedImage(evt.target.result);
+            reader.readAsDataURL(file);
+            event.target.value = '';
+        };
+
+        async function processScannedImage(dataUrl) {
+            const placeholder = document.getElementById('scannerPlaceholder');
+            const previewImg = document.getElementById('scannedPreviewImg');
+            const overlay = document.getElementById('scanningOverlay');
+
+            placeholder.classList.add('hidden');
+            previewImg.src = dataUrl;
+            previewImg.classList.remove('hidden');
+            overlay.classList.remove('hidden');
+
+            const img = new Image();
+            img.onload = async function() {
+                const queryFeatures = await extractDeepFeaturesForImage(img);
+                const match = await matchObjectFromPool(dataUrl, queryFeatures);
+
+                setTimeout(() => {
+                    overlay.classList.add('hidden');
+                    renderScanResult(match);
+                }, 350);
+            };
+            img.src = dataUrl;
+        }
+
+        function renderScanResult(match) {
+            const emptyEl = document.getElementById('resultEmptyState');
+            const notFoundEl = document.getElementById('resultNotFoundState');
+            const contentEl = document.getElementById('resultContentState');
+
+            emptyEl.classList.add('hidden');
+
+            if (!match || match.rejected || !match.item) {
+                contentEl.classList.add('hidden');
+                notFoundEl.classList.remove('hidden');
+
+                const poolNames = objectPool.length > 0
+                    ? objectPool.map(o => `${o.enName} (${o.trName || ''})`).join(', ')
+                    : 'Henüz nesne eklenmedi';
+
+                document.getElementById('rejectedDetectedLabel').textContent = match?.detectedLabel || 'Farklı Nesne';
+                document.getElementById('rejectedScoreLabel').textContent = `%${match?.confidence || 0} Benzerlik (Baraj: %${matchThreshold})`;
+                document.getElementById('rejectedPoolListLabel').textContent = poolNames;
+
+                const reasonEl = document.getElementById('notFoundReasonText');
+                if (objectPool.length === 0) {
+                    reasonEl.textContent = 'Görsel havuzu şu anda boş. Lütfen Ayarlar bölümünden ilk nesnenizi havuza ekleyin.';
+                } else {
+                    reasonEl.innerHTML = `Tarattığınız görsel (<strong class="text-amber-300">${escapeHtml(match?.detectedLabel || 'Bilinmeyen Nesne')}</strong>), havuzdaki kayıtlı nesnelerle eşleşmedi.`;
+                }
+                return;
+            }
+
+            notFoundEl.classList.add('hidden');
+            contentEl.classList.remove('hidden');
+
+            currentMatchedItem = match.item;
+            document.getElementById('matchConfidenceText').textContent = `%${match.confidence} Match`;
+            document.getElementById('resEnglishWord').textContent = currentMatchedItem.enName;
+            document.getElementById('resTurkishWord').textContent = currentMatchedItem.trName || '';
+            document.getElementById('resPronunciation').textContent = currentMatchedItem.pronunciation;
+            document.getElementById('resPoolMatchedThumb').src = match.matchedThumb || (currentMatchedItem.samples?.[0]?.dataUrl || '');
+            document.getElementById('resExampleEn').textContent = `"${currentMatchedItem.exampleEn}"`;
+            document.getElementById('resExampleTr').textContent = currentMatchedItem.exampleTr || '';
+
+            speakText(currentMatchedItem.enName);
+        }
+
+        window.toggleCamera = async function() {
+            if (scannerMediaStream) {
+                stopScannerCamera();
+                return;
+            }
+            try {
+                scannerMediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: false
+                });
+                const videoEl = document.getElementById('cameraVideo');
+                videoEl.srcObject = scannerMediaStream;
+                videoEl.classList.remove('hidden');
+                document.getElementById('scannerPlaceholder').classList.add('hidden');
+                document.getElementById('scannedPreviewImg').classList.add('hidden');
+                document.getElementById('captureCameraBtn').classList.remove('hidden');
+                document.getElementById('toggleCameraBtn').innerHTML = '<i class="fa-solid fa-video-slash text-rose-400"></i><span>Kamerayı Kapat</span>';
+            } catch (err) {
+                showToast('Kameraya erişilemedi. Lütfen Fotoğraf Yükle butonunu kullanın.', 'error');
+            }
+        };
+
+        function stopScannerCamera() {
+            if (scannerMediaStream) {
+                scannerMediaStream.getTracks().forEach(t => t.stop());
+                scannerMediaStream = null;
+            }
+            const videoEl = document.getElementById('cameraVideo');
+            if (videoEl) {
+                videoEl.srcObject = null;
+                videoEl.classList.add('hidden');
+            }
+            document.getElementById('captureCameraBtn')?.classList.add('hidden');
+            const toggleBtn = document.getElementById('toggleCameraBtn');
+            if (toggleBtn) {
+                toggleBtn.innerHTML = '<i class="fa-solid fa-video text-sky-400"></i><span>Kamerayı Aç</span>';
+            }
+        }
+
+        window.captureFromCamera = function() {
+            const videoEl = document.getElementById('cameraVideo');
+            if (!scannerMediaStream || !videoEl) return;
+
+            const c = document.createElement('canvas');
+            c.width = videoEl.videoWidth || 400;
+            c.height = videoEl.videoHeight || 400;
+            c.getContext('2d').drawImage(videoEl, 0, 0);
+            const dataUrl = c.toDataURL('image/jpeg', 0.85);
+            stopScannerCamera();
+            processScannedImage(dataUrl);
+        };
+
+        window.setSpeechRate = function(rate) {
+            speechRate = rate;
+            const isNormal = rate === 1.0;
+            document.getElementById('rateNormalBtn').className = isNormal ? 'px-2 py-0.5 rounded-lg bg-indigo-600 text-white font-semibold' : 'px-2 py-0.5 rounded-lg text-slate-400 hover:text-white';
+            document.getElementById('rateSlowBtn').className = !isNormal ? 'px-2 py-0.5 rounded-lg bg-indigo-600 text-white font-semibold' : 'px-2 py-0.5 rounded-lg text-slate-400 hover:text-white';
+            document.getElementById('settingsRateNormal').className = isNormal ? 'flex-1 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold' : 'flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold';
+            document.getElementById('settingsRateSlow').className = !isNormal ? 'flex-1 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold' : 'flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold';
+        };
+
+        window.changeVoiceAccent = function(accent) {
+            speechAccent = accent;
+            showToast(`Ses aksanı ${accent} olarak güncellendi.`, 'info');
+        };
+
+        window.speakText = function(text) {
+            if (!('speechSynthesis' in window) || !text) return;
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = speechAccent;
+            u.rate = speechRate;
+            const voices = window.speechSynthesis.getVoices();
+            const matchedVoice = voices.find(v => v.lang.startsWith(speechAccent)) || voices.find(v => v.lang.startsWith('en'));
+            if (matchedVoice) u.voice = matchedVoice;
+            window.speechSynthesis.speak(u);
+        };
+
+        window.speakCurrentWord = function() {
+            if (currentMatchedItem) speakText(currentMatchedItem.enName);
+        };
+
+        window.speakCurrentSentence = function() {
+            if (currentMatchedItem) speakText(currentMatchedItem.exampleEn);
+        };
+
+        window.switchTab = function(tabName) {
+            stopScannerCamera();
+            ['scanner', 'settings'].forEach(t => {
+                const sec = document.getElementById(`tab-${t}`);
+                const btn = document.getElementById(`tabBtn-${t}`);
+                if (t === tabName) {
+                    sec.classList.remove('hidden');
+                    btn.className = 'flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-indigo-600 text-white shadow-md shadow-indigo-600/30';
+                } else {
+                    sec.classList.add('hidden');
+                    btn.className = 'flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-300 hover:text-white hover:bg-slate-800/60';
+                }
+            });
+        };
+
+        window.handleUnlockSettings = function(e) {
+            e.preventDefault();
+            const val = document.getElementById('settingsPasswordInput').value.trim();
+            const err = document.getElementById('settingsPassError');
+            if (val === lockPassword) {
+                err.classList.add('hidden');
+                document.getElementById('settingsLockBox').classList.add('hidden');
+                document.getElementById('unlockedContentManager').classList.remove('hidden');
+                document.getElementById('settingsPasswordInput').value = '';
+            } else {
+                err.classList.remove('hidden');
+            }
+        };
+
+        window.lockSettingsArea = function() {
+            document.getElementById('unlockedContentManager').classList.add('hidden');
+            document.getElementById('settingsLockBox').classList.remove('hidden');
+        };
+
+        window.handlePoolFilesSelected = function(event) {
+            const files = Array.from(event.target.files || []);
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const img = new Image();
+                    img.onload = async () => {
+                        const dataUrl = createThumbnailDataUrl(img, 200);
+                        const feats = await extractDeepFeaturesForImage(img);
+                        pendingUploadSamples.push({
+                            dataUrl,
+                            vector: feats.vector,
+                            deepVec: feats.deepVec,
+                            topClasses: feats.topClasses,
+                            calibratedV5: true
+                        });
+                        renderPendingUploadThumbs();
+                    };
+                    img.src = evt.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+            event.target.value = '';
+        };
+
+        function renderPendingUploadThumbs() {
+            const container = document.getElementById('poolSelectedThumbs');
+            if (pendingUploadSamples.length === 0) {
+                container.innerHTML = '<span class="text-xs text-slate-500 italic">Henüz görsel seçilmedi.</span>';
+                return;
+            }
+            container.innerHTML = pendingUploadSamples.map((s, idx) => `
+                <div class="relative shrink-0">
+                    <img src="${s.dataUrl}" class="w-12 h-12 rounded-xl object-cover border border-indigo-400">
+                    <button type="button" onclick="removePendingUploadSample(${idx})"
+                        class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] flex items-center justify-center">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function cleanWordFromFileName(rawName) {
+            if (!rawName) return '';
+            let name = rawName.replace(/\.[^/.]+$/, "");
+            name = name.replace(/[_\-+]/g, ' ');
+            name = name.replace(/\d+/g, '');
+            name = name.trim();
+            if (/^(img|photo|dsc|wp|p|image|pic)$/i.test(name) || name.length < 2) {
+                return '';
+            }
+            return name.charAt(0).toUpperCase() + name.slice(1);
+        }
+
+        window.handleBatchFilesSelected = async function(event) {
+            const files = Array.from(event.target.files || []);
+            if (files.length === 0) return;
+
+            const queueBox = document.getElementById('batchQueueContainer');
+            queueBox.classList.remove('hidden');
+
+            for (const file of files) {
+                await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                        const img = new Image();
+                        img.onload = async () => {
+                            const dataUrl = createThumbnailDataUrl(img, 200);
+                            const feats = await extractDeepFeaturesForImage(img);
+
+                            let guessedWord = cleanWordFromFileName(file.name);
+                            if (!guessedWord && feats.topClasses?.length > 0) {
+                                guessedWord = feats.topClasses[0].split(',')[0].trim();
+                                guessedWord = guessedWord.charAt(0).toUpperCase() + guessedWord.slice(1);
+                            }
+
+                            batchQueue.push({
+                                fileId: 'batch_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                                fileName: file.name,
+                                dataUrl,
+                                guessedWord: guessedWord || 'Object',
+                                vector: feats.vector,
+                                deepVec: feats.deepVec,
+                                topClasses: feats.topClasses
+                            });
+                            resolve();
+                        };
+                        img.onerror = () => resolve();
+                        img.src = evt.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            event.target.value = '';
+            renderBatchQueue();
+        };
+
+        function renderBatchQueue() {
+            const listEl = document.getElementById('batchItemsList');
+            const countEl = document.getElementById('batchQueueCount');
+            countEl.textContent = batchQueue.length;
+
+            if (batchQueue.length === 0) {
+                document.getElementById('batchQueueContainer').classList.add('hidden');
+                return;
+            }
+
+            listEl.innerHTML = batchQueue.map((item, idx) => `
+                <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <img src="${item.dataUrl}" class="w-11 h-11 rounded-lg object-cover bg-slate-800 border border-slate-700 shrink-0">
+                        <div class="min-w-0">
+                            <input type="text" value="${escapeQuotes(item.guessedWord)}"
+                                onchange="updateBatchItemWord(${idx}, this.value)"
+                                placeholder="İngilizce Adı..."
+                                class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-white focus:outline-none focus:border-indigo-500 w-36 sm:w-48">
+                            <p class="text-[10px] text-slate-500 truncate pt-0.5">${escapeHtml(item.fileName)}</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="removeBatchQueueItem(${idx})"
+                        class="p-2 rounded-lg bg-slate-800 hover:bg-rose-600/80 text-slate-400 hover:text-white text-xs shrink-0 transition-all">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        window.updateBatchItemWord = function(idx, val) {
+            if (batchQueue[idx]) batchQueue[idx].guessedWord = val.trim();
+        };
+
+        window.removeBatchQueueItem = function(idx) {
+            batchQueue.splice(idx, 1);
+            renderBatchQueue();
+        };
+
+        window.clearBatchQueue = function() {
+            batchQueue = [];
+            document.getElementById('batchQueueContainer').classList.add('hidden');
+        };
+
+        window.processAndSaveAllBatchItems = async function() {
+            if (isBatchUploading || batchQueue.length === 0) return;
+
+            isBatchUploading = true;
+            const progressBox = document.getElementById('batchProgressBox');
+            const progressBar = document.getElementById('batchProgressBar');
+            const progressTitle = document.getElementById('batchProgressTitle');
+            const progressPercent = document.getElementById('batchProgressPercent');
+            const uploadBtn = document.getElementById('startBatchUploadBtn');
+
+            progressBox.classList.remove('hidden');
+            uploadBtn.disabled = true;
+            uploadBtn.classList.add('opacity-50');
+
+            const total = batchQueue.length;
+            let successCount = 0;
+
+            for (let i = 0; i < total; i++) {
+                const item = batchQueue[i];
+                const enWord = item.guessedWord || 'Object';
+
+                progressTitle.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-sky-400"></i> <span>"${escapeHtml(enWord)}" kaydediliyor (${i + 1}/${total})...</span>`;
+                progressPercent.textContent = `${i + 1} / ${total}`;
+                progressBar.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
+
+                try {
+                    const details = await generateWordDetailsWithAI(enWord);
+
+                    const newItem = {
+                        id: 'obj_' + Date.now() + '_' + i,
+                        enName: enWord,
+                        trName: details.trName || enWord,
+                        pronunciation: details.pronunciation,
+                        exampleEn: details.exampleEn,
+                        exampleTr: details.exampleTr,
+                        createdAt: Date.now() + i,
+                        samples: [{
+                            dataUrl: item.dataUrl,
+                            vector: item.vector,
+                            deepVec: item.deepVec,
+                            topClasses: item.topClasses,
+                            calibratedV5: true
+                        }]
+                    };
+
+                    await saveItemToRealtimeDatabase(newItem);
+                    successCount++;
+                } catch (err) {
+                    console.error('Toplu yükleme hatası:', err);
+                }
+
+                await new Promise(r => setTimeout(r, 200));
+            }
+
+            showToast(`${successCount} nesne Firebase'e kaydedildi!`, 'success');
+
+            isBatchUploading = false;
+            uploadBtn.disabled = false;
+            uploadBtn.classList.remove('opacity-50');
+            progressBox.classList.add('hidden');
+            clearBatchQueue();
+        };
+
+        window.removePendingUploadSample = function(idx) {
+            pendingUploadSamples.splice(idx, 1);
+            renderPendingUploadThumbs();
+        };
+
+        window.handlePreviewAiGeneration = async function() {
+            const enWord = document.getElementById('inputEnglishWord').value.trim();
+            const trWord = document.getElementById('inputTurkishWord').value.trim();
+            if (!enWord) {
+                showToast('Önizleme için önce İngilizce kelimeyi yazın.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('previewAiBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Hazırlanıyor...</span>';
+
+            try {
+                const aiResult = await generateWordDetailsWithAI(enWord, trWord);
+                document.getElementById('previewPronunciation').value = aiResult.pronunciation;
+                document.getElementById('previewTurkish').value = aiResult.trName;
+                document.getElementById('previewExampleEn').value = aiResult.exampleEn;
+                document.getElementById('previewExampleTr').value = aiResult.exampleTr;
+                document.getElementById('aiPreviewFieldsBox').classList.remove('hidden');
+            } catch (err) {
+                showToast('Önizleme oluşturulamadı: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles text-sky-400"></i><span>Telaffuz ve Örnek Cümleyi Önizle (İsteğe Bağlı)</span>';
+            }
+        };
+
+        window.handleCreateAndSaveToFirebase = async function(e) {
+            e.preventDefault();
+            if (pendingUploadSamples.length === 0) {
+                showToast('Lütfen önce nesnenin fotoğrafını seçin!', 'error');
+                return;
+            }
+
+            const enWord = document.getElementById('inputEnglishWord').value.trim();
+            const trWord = document.getElementById('inputTurkishWord').value.trim();
+            const aiBox = document.getElementById('aiGeneratingBox');
+            const saveBtn = document.getElementById('savePoolBtn');
+            const previewBox = document.getElementById('aiPreviewFieldsBox');
+
+            aiBox.classList.remove('hidden');
+            saveBtn.disabled = true;
+            saveBtn.classList.add('opacity-60');
+
+            try {
+                let finalDetails = null;
+                if (!previewBox.classList.contains('hidden') && document.getElementById('previewPronunciation').value.trim()) {
+                    finalDetails = {
+                        trName: document.getElementById('previewTurkish').value.trim() || trWord || enWord,
+                        pronunciation: document.getElementById('previewPronunciation').value.trim(),
+                        exampleEn: document.getElementById('previewExampleEn').value.trim(),
+                        exampleTr: document.getElementById('previewExampleTr').value.trim()
+                    };
+                } else {
+                    finalDetails = await generateWordDetailsWithAI(enWord, trWord);
+                }
+
+                const newItem = {
+                    id: 'obj_' + Date.now(),
+                    enName: enWord,
+                    trName: finalDetails.trName,
+                    pronunciation: finalDetails.pronunciation,
+                    exampleEn: finalDetails.exampleEn,
+                    exampleTr: finalDetails.exampleTr,
+                    createdAt: Date.now(),
+                    samples: [...pendingUploadSamples]
+                };
+
+                await saveItemToRealtimeDatabase(newItem);
+
+                document.getElementById('poolUploadForm').reset();
+                previewBox.classList.add('hidden');
+                pendingUploadSamples = [];
+                renderPendingUploadThumbs();
+                showToast(`"${enWord}" Realtime Database havuzuna kaydedildi!`, 'success');
+            } catch (err) {
+                showToast('Kayıt hatası: ' + err.message, 'error');
+            } finally {
+                aiBox.classList.add('hidden');
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('opacity-60');
+            }
+        };
+
+        window.triggerAddAngleToObject = function(itemId) {
+            targetExtraAngleObjectId = itemId;
+            document.getElementById('extraAngleFileInput').click();
+        };
+
+        window.handleExtraAngleUpload = function(event) {
+            const files = Array.from(event.target.files || []);
+            if (!targetExtraAngleObjectId || files.length === 0) return;
+
+            const targetItem = objectPool.find(x => x.id === targetExtraAngleObjectId);
+            if (!targetItem) return;
+
+            let processedCount = 0;
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const img = new Image();
+                    img.onload = async () => {
+                        const dataUrl = createThumbnailDataUrl(img, 200);
+                        const feats = await extractDeepFeaturesForImage(img);
+                        if (!Array.isArray(targetItem.samples)) targetItem.samples = [];
+                        targetItem.samples.push({
+                            dataUrl,
+                            vector: feats.vector,
+                            deepVec: feats.deepVec,
+                            topClasses: feats.topClasses,
+                            calibratedV5: true
+                        });
+                        processedCount++;
+
+                        if (processedCount === files.length) {
+                            localStorage.setItem(LOCAL_POOL_CACHE_KEY, JSON.stringify(objectPool));
+                            renderPoolItemsInSettings();
+                            if (rtdb) {
+                                const itemRef = ref(rtdb, `visual_pool/${targetItem.id}`);
+                                await update(itemRef, { samples: targetItem.samples });
+                            }
+                            showToast(`"${targetItem.enName}" nesnesine ${files.length} yeni açı eklendi!`, 'success');
+                        }
+                    };
+                    img.src = evt.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+            event.target.value = '';
+        };
+
+        function renderPoolItemsInSettings() {
+            const listEl = document.getElementById('poolItemsList');
+            const countEl = document.getElementById('poolTotalCount');
+            if (!listEl) return;
+
+            countEl.textContent = objectPool.length;
+
+            if (objectPool.length === 0) {
+                listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-6">Görsel havuzunda henüz nesne bulunmuyor. Yukarıdan ilk nesnenizi ekleyin.</p>`;
+                return;
+            }
+
+            listEl.innerHTML = objectPool.map(item => {
+                const thumb = item.samples?.[0]?.dataUrl || '';
+                const sampleCount = (item.samples || []).length;
+                return `
+                    <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-start gap-3 min-w-0">
+                            <img src="${thumb}" class="w-14 h-14 rounded-xl object-cover bg-slate-800 border border-slate-700 shrink-0">
+                            <div class="min-w-0 space-y-0.5">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="font-bold text-white text-sm">${escapeHtml(item.enName)}</span>
+                                    <span class="text-xs text-slate-400">(${escapeHtml(item.trName)})</span>
+                                    <span class="px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-semibold">${sampleCount} Açı</span>
+                                </div>
+                                <p class="text-xs text-amber-300 font-mono">${escapeHtml(item.pronunciation)}</p>
+                                <p class="text-xs text-slate-300 italic truncate">"${escapeHtml(item.exampleEn)}"</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button type="button" onclick="triggerAddAngleToObject('${item.id}')"
+                                class="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1">
+                                <i class="fa-solid fa-plus"></i>
+                                <span>Açı Ekle</span>
+                            </button>
+                            <button type="button" onclick="speakText('${escapeQuotes(item.enName)}')"
+                                class="p-2 rounded-xl bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white text-xs">
+                                <i class="fa-solid fa-volume-high"></i>
+                            </button>
+                            <button type="button" onclick="deletePoolObject('${item.id}')"
+                                class="p-2 rounded-xl bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white text-xs">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.deletePoolObject = function(id) {
+            removeItemFromRealtimeDatabase(id);
+        };
+
+        window.updateLockPassword = function() {
+            const val = document.getElementById('newLockPassInput').value.trim();
+            if (val.length < 3) {
+                showToast('Şifre en az 3 karakter olmalıdır.', 'error');
+                return;
+            }
+            lockPassword = val;
+            localStorage.setItem(LOCAL_PASS_KEY, lockPassword);
+            document.getElementById('newLockPassInput').value = '';
+            showToast('Ayarlar şifresi güncellendi.', 'success');
+        };
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function escapeQuotes(str) {
+            if (!str) return '';
+            return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            let border = 'border-indigo-500';
+            let icon = 'fa-circle-info text-indigo-400';
+            if (type === 'success') { border = 'border-emerald-500'; icon = 'fa-circle-check text-emerald-400'; }
+            if (type === 'error') { border = 'border-rose-500'; icon = 'fa-triangle-exclamation text-rose-400'; }
+
+            toast.className = `pointer-events-auto flex items-center gap-3 p-4 rounded-2xl bg-slate-900 border-l-4 ${border} text-white shadow-2xl transition-all duration-300`;
+            toast.innerHTML = `<i class="fa-solid ${icon} text-lg"></i><p class="text-xs sm:text-sm font-medium">${escapeHtml(message)}</p>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3400);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const slider = document.getElementById('similarityThresholdSlider');
+            const badge = document.getElementById('thresholdValueBadge');
+            if (slider) slider.value = matchThreshold;
+            if (badge) badge.textContent = `%${matchThreshold}`;
+            initFirebaseRealtimeDatabase();
+            ensureMobileNetLoaded();
+        });
+    </script>
+</body>
+</html>
